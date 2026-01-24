@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Interactive Connection Map</title>
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<style>
+  body { margin:0; background:#111; font-family:sans-serif; }
+  svg { width:100vw; height:100vh; display:block; }
+
+  circle {
+    stroke-width:2;
+    cursor:pointer;
+  }
+
+  line { stroke:#fff; stroke-width:2; }
+
+  text { fill:#000; font-size:14px; text-anchor:middle; font-weight:bold; pointer-events:none; }
+
+  #search {
+    position:absolute;
+    top:10px;
+    left:10px;
+    padding:5px;
+    font-size:16px;
+    width:200px;
+  }
+
+  /* Tooltip */
+  .tooltip {
+    position: absolute;
+    padding: 6px 10px;
+    background: #222;
+    color: #0ff;
+    border: 1px solid #0ff;
+    border-radius: 5px;
+    pointer-events: none;
+    font-size: 14px;
+    font-family: sans-serif;
+    display: none;
+  }
+</style>
+</head>
+<body>
+<input type="text" id="search" placeholder="Search nodes..." />
+<div class="tooltip" id="tooltip"></div>
+<svg id="map"></svg>
+
+<script>
+const svg = d3.select("#map");
+const width = window.innerWidth;
+const height = window.innerHeight;
+const tooltip = d3.select("#tooltip");
+
+// Node-ok kategóriák és színek
+const categoryColors = {
+  "reszecske": "#0ff",   // Atom, Proton, Elektron
+  "molekula": "#0f0",    // DNS, Timin
+  "sejt": "#f0f"         // Sejt
+};
+
+// ------- Nodes & Connections -------
+const allNodes = [
+  { id: 1, label: "Atom", category: "reszecske", info:"Alapvető részecske, tartalmaz protonokat, neutronokat és elektronokat" },
+  { id: 2, label: "DNS", category: "molekula", info:"Dezoxiribonukleinsav, genetikai információ hordozója" },
+  { id: 3, label: "Sejt", category: "sejt", info:"Az élő szervezet alapvető egysége" },
+  { id: 4, label: "Elektron", category: "reszecske", info:"Negatív töltésű részecske az atom körül" },
+  { id: 5, label: "Proton", category: "reszecske", info:"Pozitív töltésű részecske az atommagban" },
+  { id: 6, label: "Timin", category: "molekula", info:"DNS építőelem, bázis a genetikai kódhoz" },
+  { id: 7, label: "Neutron", category: "reszecske", info:"Semleges töltésű részecske az atommagban" },
+  { id:8, label: "Sejtmag", category: "sejt", info:"A sejt irányító központja, tartalmazza a DNS-t" },
+  { id:9, label: "Riboszóma", category: "sejt", info:"Fehérjeszintézis helye a sejtekben" },
+  { id:10, label: "Mitokondrium", category: "sejt", info:"A sejt energiatermelő központja" },
+  { id:11, label: "Kloroplasztisz", category: "sejt", info:"Növényi sejtekben található, fotoszintézis helye" },
+  { id:12, label: "Víz", category: "molekula", info:"Élethez nélkülözhetetlen molekula" },
+  { id:13, label: "Fehérje", category: "molekula", info:"Fontos biomolekula, amely számos funkciót ellát a szervezetben" },
+  { id:14, label: "Glükóz", category: "molekula", info:"Egyszerű cukor, amely energiát szolgáltat a sejtek számára" },
+  { id:15, label: "Lipidek", category: "molekula", info:"Zsírszerű molekulák, amelyek energiát tárolnak és sejtmembránokat alkotnak" },
+  { id:16, label: "Enzim", category: "molekula", info:"Biokatalizátor, amely felgyorsítja a kémiai reakciókat a szervezetben" },
+  { id:17, label: "Antitest", category: "molekula", info:"Immunrendszer fehérjéi, amelyek felismerik és semlegesítik a kórokozókat" },
+  { id:18, label: "Tenger", category: "molekula", info:"Nagy mennyiségű sós víz, amely a Föld felszínének nagy részét borítja" },
+  { id:19, label: "Óceán", category: "molekula", info:"Nagy kiterjedésű sós víztest, amely a Föld felszínének jelentős részét borítja" },
+  { id:20, label: "Folyó", category: "molekula", info:"Édesvízi vízfolyás, amely a szárazföldön áramlik" },
+  { id:21, label: "Só", category: "molekula", info:"Kémiai vegyület, amely a vízben oldódva ízesíti az ételeket" },
+  { id:22, label: "Cukor", category: "molekula", info:"Édes ízű szénhidrát, amely energiát szolgáltat a szervezet számára" },
+  { id:23, label: "Szövet", category: "sejt", info:"Sejtek csoportja, amely meghatározott funkciót lát el a szervezetben" },
+  { id:24, label: "Szerv", category: "sejt", info:"Különböző szövetekből álló struktúra, amely meghatározott funkciót lát el a szervezetben" },
+  { id:25, label: "Szervezet", category: "sejt", info:"Élőlény, amely különböző szervekből és rendszerekből áll" },
+  { id:26, label: "Élőlény", category: "sejt", info:"Bármely olyan entitás, amely életjelenségeket mutat" },
+  { id:27, label: "Állat", category: "sejt", info:"Élőlény, amely képes mozogni és érzékelni a környezetét" },
+  { id:28, label: "Növény", category: "sejt", info:"Élőlény, amely fotoszintézissel állít elő energiát" }
+];
+
+const allLinks = [
+  { source: 2, target: 6, info:"DNS kapcsolódik Timinhez" },
+  { source: 6, target: 1, info:"Timin kapcsolódik Atomhoz" },
+  { source: 3, target: 2, info:"Sejt kapcsolódik DNS-hez" },
+  { source: 4, target: 1, info:"Elektron kapcsolódik Atomhoz" },
+  { source: 5, target: 1, info:"Proton kapcsolódik Atomhoz" },
+  { source: 7, target: 1, info:"Neutron kapcsolódik Atomhoz" },
+  { source: 8, target: 3, info:"Sejtmag kapcsolódik Sejthez" },
+  { source: 9, target: 3, info:"Riboszóma kapcsolódik Sejthez" },
+  { source:10, target: 3, info:"Mitokondrium kapcsolódik Sejthez" },
+  { source:11, target: 3, info:"Kloroplasztisz kapcsolódik Sejthez" },
+  { source:12, target: 3, info:"Víz kapcsolódik Sejthez" },
+  { source:13, target: 3, info:"Fehérje kapcsolódik Sejthez" },
+  { source:14, target: 3, info:"Glükóz kapcsolódik Sejthez" },
+  { source:15, target: 3, info:"Lipidek kapcsolódik Sejthez" },
+  { source:16, target: 3, info:"Enzim kapcsolódik Sejthez" },
+  { source:17, target: 3, info:"Antitest kapcsolódik Sejthez" },
+  { source:18, target:12, info:"Tenger kapcsolódik Vízhez" },
+  { source:19, target:12, info:"Óceán kapcsolódik Vízhez" },
+  { source:20, target:12, info:"Folyó kapcsolódik Vízhez" },
+  { source:21, target:18, info:"Só kapcsolódik Tengerhez" },
+  { source:21, target:19, info:"Só kapcsolódik Óceánhoz" },
+  { source:21, target:1, info:"Só kapcsolódik Atomhoz" },
+  { source:22, target:14, info:"Cukor kapcsolódik Glükózhoz" },
+  { source:23, target:3, info:"Szövet kapcsolódik Sejthez" },
+  { source:24, target:23, info:"Szerv kapcsolódik Szövethez" },
+  { source:25, target:24, info:"Szervezet kapcsolódik Szervhez" },
+  { source:26, target:25, info:"Élőlény kapcsolódik Szervezethez" },
+  { source:27, target:26, info:"Állat kapcsolódik Élőlényhez" },
+  { source:28, target:26, info:"Növény kapcsolódik Élőlényhez" }
+];
+
+// ------- Force simulation -------
+const simulation = d3.forceSimulation()
+  .force("link", d3.forceLink().id(d => d.id).distance(150))
+  .force("charge", d3.forceManyBody().strength(-500))
+  .force("center", d3.forceCenter(width / 2, height / 2));
+
+let linkGroup = svg.append("g").attr("stroke","#fff").attr("stroke-width",2);
+let nodeGroup = svg.append("g");
+
+// ------- Graph rajzolás -------
+function updateGraph(nodes, links) {
+  simulation.stop();
+  svg.selectAll("*").remove();
+  linkGroup = svg.append("g").attr("stroke","#fff").attr("stroke-width",2);
+  nodeGroup = svg.append("g");
+
+  // Links
+  const link = linkGroup.selectAll("line")
+    .data(links)
+    .enter()
+    .append("line")
+    .on("mouseover", (event,d)=> {
+      tooltip.style("display","block").text(d.info);
+    })
+    .on("mousemove", (event) => {
+      tooltip.style("left",(event.pageX+10)+"px").style("top",(event.pageY+10)+"px");
+    })
+    .on("mouseout", () => tooltip.style("display","none"));
+
+  // Nodes
+  const node = nodeGroup.selectAll("g")
+    .data(nodes)
+    .enter()
+    .append("g")
+    .call(d3.drag()
+      .on("start", dragstarted)
+      .on("drag", dragged)
+      .on("end", dragended));
+
+  node.append("circle")
+    .attr("r", 25)
+    .attr("fill", d=>categoryColors[d.category])
+    .attr("stroke", d=>categoryColors[d.category])
+    .on("mouseover", (event,d) => {
+      tooltip.style("display","block").text(d.info);
+    })
+    .on("mousemove", (event) => {
+      tooltip.style("left",(event.pageX+10)+"px").style("top",(event.pageY+10)+"px");
+    })
+    .on("mouseout", () => tooltip.style("display","none"));
+
+  node.append("text")
+    .attr("dy",5)
+    .text(d => d.label);
+
+  simulation.nodes(nodes).on("tick", ticked);
+  simulation.force("link").links(links);
+  simulation.alpha(1).restart();
+
+  function ticked() {
+    link
+      .attr("x1", d => findNode(d.source).x)
+      .attr("y1", d => findNode(d.source).y)
+      .attr("x2", d => findNode(d.target).x)
+      .attr("y2", d => findNode(d.target).y);
+
+    node.attr("transform", d => `translate(${d.x},${d.y})`);
+  }
+
+  function findNode(id) { return typeof id==="object"?id:nodes.find(n=>n.id===id); }
+
+  function dragstarted(event,d) { if(!event.active) simulation.alphaTarget(0.3).restart(); d.fx=d.x; d.fy=d.y; }
+  function dragged(event,d) { d.fx=event.x; d.fy=event.y; }
+  function dragended(event,d) { if(!event.active) simulation.alphaTarget(0); d.fx=null; d.fy=null; }
+}
+
+// ------- Initial graph -------
+updateGraph(allNodes, allLinks);
+
+// ------- Search -------
+document.getElementById("search").addEventListener("input", (e)=>{
+  const query = e.target.value.toLowerCase().trim();
+  if(!query) return updateGraph(allNodes, allLinks);
+
+  const filteredNodes = allNodes.filter(n=>n.label.toLowerCase().includes(query));
+  const filteredNodeIds = filteredNodes.map(n=>n.id);
+  const filteredLinks = allLinks.filter(l=>filteredNodeIds.includes(l.source) || filteredNodeIds.includes(l.target));
+  const relatedNodeIds = filteredLinks.flatMap(l=>[l.source,l.target]);
+  const finalNodes = allNodes.filter(n=>relatedNodeIds.includes(n.id));
+  updateGraph(finalNodes, filteredLinks);
+});
+</script>
+</body>
+</html>
