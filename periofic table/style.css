@@ -1,0 +1,64 @@
+body {
+  background: #05080f;
+  color: #9ffcff;
+  font-family: "Segoe UI", sans-serif;
+  text-align: center;
+}
+
+/* periódusos rács */
+#table {
+  display: grid;
+  grid-template-columns: repeat(18, 60px);
+  gap: 6px;
+  justify-content: center;
+  margin: 30px auto;
+}
+
+.element {
+  border: 1px solid #00f6ff;
+  border-radius: 8px;
+  padding: 4px;
+  cursor: pointer;
+  box-shadow: 0 0 8px rgba(0,246,255,0.4);
+}
+
+.element:hover {
+  box-shadow: 0 0 16px #00f6ff;
+}
+
+/* atom nézet */
+#atom {
+  margin-top: 20px;
+}
+
+/* pályák */
+.orbit {
+  fill: none;
+  stroke: #00f6ff;
+  stroke-width: 1;
+  opacity: 0.6;
+}
+
+/* elektron */
+.electron {
+  fill: #00f6ff;
+  filter: drop-shadow(0 0 6px #00f6ff);
+}
+
+/* atommag */
+.nucleus {
+  fill: none;
+  stroke: #ff4d4d;
+  stroke-width: 2;
+  filter: drop-shadow(0 0 8px #ff4d4d);
+}
+
+text {
+  fill: #9ffcff;
+  font-size: 10px;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
