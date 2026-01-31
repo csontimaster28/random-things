@@ -1,0 +1,90 @@
+[
+    {
+        "name": "Cristiano Ronaldo",
+        "position": "ST",
+        "rating": 91,
+        "type": "rare",
+        "tier": "gold",
+        "img": "assets/cristiano_ronaldo.png"
+    },
+    {
+        "name": "Player 2",
+        "position": "CM",
+        "rating": 72,
+        "type": "common",
+        "tier": "silver",
+        "img": "assets/placeholder.png"
+    },
+    {
+        "name": "Player 3",
+        "position": "CB",
+        "rating": 66,
+        "type": "rare",
+        "tier": "bronze",
+        "img": "assets/placeholder.png"
+    },
+    {
+        "name": "Player 4",
+        "position": "LW",
+        "rating": 85,
+        "type": "rare",
+        "tier": "gold",
+        "img": "assets/placeholder.png"
+    },
+    {
+        "name": "Player 5",
+        "position": "RB",
+        "rating": 78,
+        "type": "common",
+        "tier": "silver",
+        "img": "assets/placeholder.png"
+    },
+    {
+        "name": "Player 6",
+        "position": "GK",
+        "rating": 90,
+        "type": "rare",
+        "tier": "gold",
+        "img": "assets/placeholder.png"
+    },
+    {
+        "name": "Player 7",
+        "position": "CDM",
+        "rating": 69,
+        "type": "common",
+        "tier": "bronze",
+        "img": "assets/placeholder.png"
+    },
+    {
+        "name": "Player 8",
+        "position": "RW",
+        "rating": 88,
+        "type": "rare",
+        "tier": "gold",
+        "img": "assets/placeholder.png"
+    },
+    {
+        "name": "Player 9",
+        "position": "LB",
+        "rating": 74,
+        "type": "common",
+        "tier": "silver",
+        "img": "assets/placeholder.png"
+    },
+    {
+        "name": "Player 10",
+        "position": "CAM",
+        "rating": 81,
+        "type": "rare",
+        "tier": "gold",
+        "img": "assets/placeholder.png"
+    },
+    {
+        "name": "Player 11",
+        "position": "CF",
+        "rating": 77,
+        "type": "common",
+        "tier": "silver",
+        "img": "assets/placeholder.png"
+    }
+]

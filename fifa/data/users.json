@@ -1,0 +1,13 @@
+{
+    "csontimaster28": {
+        "username": "csontimaster28",
+        "password": "12728",
+        "coins": 400,
+        "squad": []
+    },
+    "test": {
+        "password": "",
+        "coins": 2490,
+        "squad": []
+    }
+}
