@@ -1,37 +1,15 @@
 import pygame
 import numpy as np
 from PIL import Image
-from scipy.spatial.distance import cdist
+from scipy.spatial import cKDTree
 import sys
 import os
 import psutil
 import time
 from collections import deque
 
-# Optional CUDA acceleration via CuPy (NVIDIA GPUs)
-USE_CUDA = False
-try:
-    import cupy as cp
-    try:
-        n_devices = cp.cuda.runtime.getDeviceCount()
-        if n_devices > 0:
-            # Quick smoke-test that runtime compilation / nvrtc is available
-            try:
-                a = cp.asarray([0., 0.], dtype=cp.float32)
-                # this may trigger nvrtc usage in some builds; if it fails, we fallback
-                _ = cp.linalg.norm(a - a)
-                USE_CUDA = True
-                print(f"CUDA-enabled GPU detected ({n_devices} device(s)) — using CuPy for acceleration")
-            except Exception:
-                USE_CUDA = False
-                print("CuPy present but CUDA runtime compilation failed; falling back to NumPy")
-        else:
-            print("CuPy available but no CUDA device found; falling back to NumPy")
-    except Exception:
-        print("CuPy imported but CUDA runtime not available; falling back to NumPy")
-except Exception:
-    cp = None
-    print("CuPy not available; using NumPy (CPU)")
+# GPU/CuPy acceleration removed — use pure NumPy + SciPy KD-tree for fast color lookup
+cp = None
 
 def resource_path(rel_path):
     """Return absolute path to resource, works for dev and PyInstaller bundles."""
@@ -47,7 +25,14 @@ try:
     from tkinter import filedialog
     root = tk.Tk()
     root.withdraw()
-    file_path = filedialog.askopenfilename(title="Select JPEG image", filetypes=[("JPEG files", "*.jpg *.jpeg")])
+    # Support common image formats beyond JPEG
+    file_path = filedialog.askopenfilename(
+        title="Select image",
+        filetypes=[
+            ("Image files", "*.jpg *.jpeg *.png *.bmp *.gif *.tif *.tiff"),
+            ("All files", "*")
+        ]
+    )
     root.destroy()
 except Exception:
     file_path = ""
@@ -58,12 +43,27 @@ else:
     img_path = resource_path("image.jpg")
 
 # Load image without resizing and set window size to image size
-target_img = Image.open(img_path).convert("RGB")
+target_img = Image.open(img_path)
+# Handle images with alpha by compositing onto white background
+if target_img.mode in ("RGBA", "LA") or ("transparency" in target_img.info):
+    bg = Image.new("RGB", target_img.size, (255, 255, 255))
+    try:
+        bg.paste(target_img, mask=target_img.split()[-1])
+        target_img = bg
+    except Exception:
+        target_img = target_img.convert("RGB")
+else:
+    target_img = target_img.convert("RGB")
+
+# If the image is extremely large, downscale slightly for real-time performance
+MAX_DIM = 2048
+if max(target_img.size) > MAX_DIM:
+    scale = MAX_DIM / max(target_img.size)
+    new_size = (int(target_img.size[0] * scale), int(target_img.size[1] * scale))
+    target_img = target_img.resize(new_size, Image.LANCZOS)
 WIDTH, HEIGHT = target_img.size
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
 caption = "Pixel Morph Draw"
-if USE_CUDA:
-    caption += " (CUDA)"
 pygame.display.set_caption(caption)
 
 clock = pygame.time.Clock()
@@ -80,26 +80,8 @@ font_small = pygame.font.SysFont(None, 18)
 # icon rect (top-right)
 icon_rect = pygame.Rect(WIDTH - 46, 6, 40, 40)
 
-# Try NVML for detailed NVIDIA GPU metrics; fall back to CuPy memory query if NVML not installed
-try:
-    import pynvml
-    pynvml.nvmlInit()
-    NVML = True
-    try:
-        nvml_device_count = pynvml.nvmlDeviceGetCount()
-        if nvml_device_count > 0:
-            nvml_handle = pynvml.nvmlDeviceGetHandleByIndex(0)
-        else:
-            nvml_handle = None
-            NVML = False
-    except Exception:
-        nvml_handle = None
-        NVML = False
-    print("pynvml available — GPU metrics enabled")
-except Exception:
-    NVML = False
-    nvml_handle = None
-    # not fatal — we'll still report limited GPU info via CuPy if available
+NVML = False
+nvml_handle = None
 
 
 def format_bytes(n):
@@ -153,40 +135,8 @@ def update_stats():
     except Exception:
         stats['cpu_clock'] = None
 
-    # GPU metrics
-    if NVML and nvml_handle:
-        try:
-            name = pynvml.nvmlDeviceGetName(nvml_handle)
-            if isinstance(name, bytes):
-                name = name.decode()
-            stats['gpu_name'] = name
-            util = pynvml.nvmlDeviceGetUtilizationRates(nvml_handle)
-            stats['gpu_util'] = util.gpu
-            mem = pynvml.nvmlDeviceGetMemoryInfo(nvml_handle)
-            stats['gpu_mem_used'] = mem.used
-            stats['gpu_mem_total'] = mem.total
-            stats['gpu_clock'] = pynvml.nvmlDeviceGetClockInfo(nvml_handle, pynvml.NVML_CLOCK_SM)
-            mp = pynvml.nvmlDeviceGetMultiProcessorCount(nvml_handle)
-            try:
-                major, minor = pynvml.nvmlDeviceGetCudaComputeCapability(nvml_handle)
-            except Exception:
-                major = minor = None
-            stats['gpu_cuda_cores'] = estimate_cuda_cores(major, minor, mp)
-        except Exception:
-            stats.update({'gpu_name': None, 'gpu_util': None, 'gpu_mem_used': None, 'gpu_mem_total': None, 'gpu_clock': None, 'gpu_cuda_cores': None})
-    elif USE_CUDA and cp is not None:
-        try:
-            free, total = cp.cuda.runtime.memGetInfo()
-            stats['gpu_mem_used'] = int(total - free)
-            stats['gpu_mem_total'] = int(total)
-            stats['gpu_name'] = "CUDA GPU"
-            stats['gpu_util'] = None
-            stats['gpu_clock'] = None
-            stats['gpu_cuda_cores'] = None
-        except Exception:
-            stats.update({'gpu_name': None, 'gpu_util': None, 'gpu_mem_used': None, 'gpu_mem_total': None, 'gpu_clock': None, 'gpu_cuda_cores': None})
-    else:
-        stats.update({'gpu_name': None, 'gpu_util': None, 'gpu_mem_used': None, 'gpu_mem_total': None, 'gpu_clock': None, 'gpu_cuda_cores': None})
+    # GPU metrics removed — keep GPU-related stats keys empty
+    stats.update({'gpu_name': None, 'gpu_util': None, 'gpu_mem_used': None, 'gpu_mem_total': None, 'gpu_clock': None, 'gpu_cuda_cores': None})
 
 
 def draw_stats_icon():
@@ -244,16 +194,18 @@ for y in range(HEIGHT):
         target_pixels.append(((x, y), target[y, x]))
 
 tgt_pos = np.array([p[0] for p in target_pixels])
-tgt_col = np.array([p[1] for p in target_pixels])
+# color array as float32, contiguous for KD-tree
+tgt_col = np.ascontiguousarray(np.array([p[1] for p in target_pixels], dtype=np.float32))
 # Keep track of which target pixels are already taken so we spread draws across multiple pixels
 # When a target is chosen it's marked True and won't be chosen again (prevents many pixels going to the same spot)
 tgt_used = np.zeros(len(tgt_pos), dtype=bool)
 
-# If CUDA is available, upload color positions to device for accelerated distance computations
-if USE_CUDA:
-    # Convert to float32 on device to avoid overflow and ensure compatibility with CuPy kernels
-    tgt_pos_dev = cp.asarray(tgt_pos.astype(cp.float32))
-    tgt_col_dev = cp.asarray(tgt_col.astype(cp.float32))
+# Build a single cKDTree on the target colors (RGB) for fast nearest-neighbor color lookup.
+# This tree is constructed once at initialization and reused for all frames.
+tgt_color_tree = cKDTree(tgt_col)
+
+# Precompute float32 target positions to avoid per-draw conversions
+tgt_pos_f = np.ascontiguousarray(tgt_pos.astype(np.float32))
 
 # === RAJZOLT PIXELEK ===
 draw_pixels = []  # [pos, color, velocity, target_idx]
@@ -270,57 +222,44 @@ def draw_slider(y, value, color):
 # === SZÍN PÁROSÍTÁS ===
 def find_target(color, max_candidates=200):
     """Return the index of a nearby target pixel whose color is closest to `color`.
-    Prefers unused targets to distribute draws across many pixels. Uses CuPy if available for acceleration."""
-    global USE_CUDA
+    Uses a single pre-built `cKDTree` (`tgt_color_tree`) to query the k nearest
+    color matches (k is min(max_candidates, len(tgt_col), 50)). Prefer unused
+    targets; if none of the k nearest are unused, fall back to searching the
+    nearest unused pixel. Only allow reuse when no unused pixels remain.
+    """
     n = len(tgt_pos)
-    k = min(max_candidates, n)
+    if n == 0:
+        return 0
+    # cap k to a reasonable range (10..50) for fast queries
+    k = min(max(10, max_candidates), 50, n)
 
-    if USE_CUDA:
-        try:
-            # Work on device to compute distances; transfer only small index arrays back to host
-            color_dev = cp.asarray(color, dtype=cp.float32)
-            # compute L2 distances on device
-            dists_dev = cp.linalg.norm(tgt_col_dev - color_dev, axis=1)
-            # get k nearest candidates (unsorted), then sort them (all on device)
-            idxs_dev = cp.argpartition(dists_dev, k-1)[:k]
-            idxs_dev = idxs_dev[cp.argsort(dists_dev[idxs_dev])]
-            # bring small set of indices back to host
-            idxs = cp.asnumpy(idxs_dev)
-            for idx in idxs:
-                if not tgt_used[idx]:
-                    tgt_used[idx] = True
-                    return int(idx)
-            # try any unused pixels by checking distances of unused indices
-            unused = np.where(~tgt_used)[0]
-            if unused.size > 0:
-                unused_dev = cp.asarray(unused)
-                dists_unused = dists_dev[unused_dev]
-                min_pos = int(cp.asnumpy(cp.argmin(dists_unused)))
-                idx = int(unused[min_pos])
-                tgt_used[idx] = True
-                return idx
-            # fallback to nearest (allow reuse)
-            return int(cp.asnumpy(cp.argmin(dists_dev)))
-        except Exception:
-            # If any CuPy/CUDA runtime error occurs, disable CUDA usage and fall back to CPU
-            print("Warning: CuPy runtime failed during distance computation — falling back to NumPy")
-            USE_CUDA = False
-
-    # CPU fallback
-    dists = np.linalg.norm(tgt_col - color, axis=1)
-    k = min(max_candidates, len(dists))
-    idxs = np.argpartition(dists, k-1)[:k]
-    idxs = idxs[np.argsort(dists[idxs])]
+    color_pt = np.asarray(color, dtype=np.float32)
+    # Query the KD-tree for k nearest color matches (use all CPUs)
+    dists, idxs = tgt_color_tree.query(color_pt, k=k, workers=-1)
+    # normalize shapes: if k==1, make arrays
+    if k == 1:
+        idxs = np.array([int(idxs)])
+        dists = np.array([dists])
+    # Prefer unused target pixels among the k nearest
     for idx in idxs:
+        idx = int(idx)
         if not tgt_used[idx]:
             tgt_used[idx] = True
-            return int(idx)
+            return idx
+
+    # If any unused pixels remain, compute nearest among them (fallback).
     unused = np.where(~tgt_used)[0]
     if unused.size > 0:
-        idx = int(unused[np.argmin(dists[unused])])
+        # compute distances only on the unused subset (vectorized)
+        d_unused = np.linalg.norm(tgt_col[unused] - color_pt, axis=1)
+        pick = int(np.argmin(d_unused))
+        idx = int(unused[pick])
         tgt_used[idx] = True
         return idx
-    return int(np.argmin(dists))
+
+    # No unused pixels left — allow reuse: return overall nearest
+    # idxs[0] is the nearest returned by the KD-tree
+    return int(idxs[0])
 
 # === LOOP ===
 running = True
@@ -356,9 +295,8 @@ while running:
                     py = my + oy
                     idx = find_target(np.array(current_color))
                     draw_pixels.append({
-                        "pos": np.array([px, py], dtype=float),
+                        "pos": np.array([px, py], dtype=np.float32),
                         "target_idx": int(idx),
-                        "target": tgt_pos[int(idx)].astype(float),
                         "color": current_color.copy()
                     })
 
@@ -390,14 +328,17 @@ while running:
         pygame.draw.circle(screen, (200,200,200), (int(mx), int(my)), int(brush_size), 1)
 
     # === PIXEL MOZGÁS ===
+    # Local references for speed
+    _tgt_pos_f = tgt_pos_f
     for p in draw_pixels:
-        direction = p["target"] - p["pos"]
+        target = _tgt_pos_f[p["target_idx"]]
+        direction = target - p["pos"]
         dist = np.linalg.norm(direction)
         # move if far, otherwise snap to avoid jitter
         if dist > 0.5:
             p["pos"] += direction * 0.05
         else:
-            p["pos"] = p["target"].copy()
+            p["pos"] = target.copy()
         pygame.draw.circle(screen, p["color"], p["pos"].astype(int), 2)
 
     # draw FPS and stats icon/panel
